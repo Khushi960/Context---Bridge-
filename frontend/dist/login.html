@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Log in · Context Bridge</title>
+<style>
+  :root {
+    --paper: #f5f1e8; --card: #fffdf7; --ink: #24221d; --muted: #6a665a; --faint: #9b9686; --line: #ddd5c3;
+    --accent: #ad4527; --accent-ink: #fff8f2; --deep: #1d2a24; --deep-ink: #e8e3d3; --warn: #a23a2a; --warn-soft: #f6ddd5;
+    --ask: #7a5a0a; --ask-soft: #f6ebc8; --field: #f0ebdd; --ok: #3b7752;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #16181a; --card: #1c1f21; --ink: #ece8dc; --muted: #a39f92; --faint: #756f63; --line: #34373a;
+      --accent: #e0805f; --accent-ink: #1d120d; --deep: #101513; --deep-ink: #dcd7c8; --warn: #ef8d7c; --warn-soft: #3a2420;
+      --ask: #e5c36b; --ask-soft: #38301a; --field: #24282a; --ok: #6fb58a; color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 var(--sans); display: grid; place-items: center; padding: 24px 16px; }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .wrap { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 14px; }
+  .brand { display: flex; align-items: center; gap: 10px; font: 600 20px var(--serif); color: var(--ink); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.08); }
+  h1 { margin: 0; font: 600 24px/1.2 var(--serif); }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .tabs button { background: none; border: 0; padding: 7px; color: var(--muted); cursor: pointer; }
+  .tabs button + button { border-left: 1px solid var(--line); }
+  .tabs button[aria-selected="true"] { background: var(--ink); color: var(--card); font-weight: 600; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; color: var(--muted); }
+  input[type=text], input[type=password] { background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 15px; color: var(--ink); width: 100%; }
+  .hint { margin: 0; font-size: 12.5px; color: var(--faint); }
+  .pledge { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--ink); }
+  .pledge input { margin-top: 3px; accent-color: var(--accent); flex: none; }
+  .go { background: var(--accent); border: 1px solid var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 9px; font-weight: 600; cursor: pointer; }
+  .go:disabled { opacity: .55; cursor: default; }
+  .err { margin: 0; color: var(--warn); font-size: 13.5px; min-height: 1em; }
+  .integrity { background: var(--ask-soft); color: var(--ask); border-radius: 8px; padding: 12px 14px; font-size: 13.5px; border-top: 4px solid var(--ask); }
+  .integrity b { display: block; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+  .integrity p { margin: 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="brand">
+    <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden="true"><path d="M1 18V15C1 7 6 2 13 2s12 5 12 13v3" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M1 12h24" stroke="currentColor" stroke-width="2.2"/></svg>
+    Context Bridge
+  </div>
+
+  <form class="card" id="form" novalidate>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="t-login" aria-selected="true">Log in</button>
+      <button type="button" role="tab" id="t-new" aria-selected="false">Create account</button>
+    </div>
+    <h1 id="head">Welcome back</h1>
+    <label class="f">Username
+      <input type="text" id="u" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+    </label>
+    <p class="hint" id="u-hint" hidden>3 to 32 characters: letters, numbers, dot, dash or underscore. Must be unique.</p>
+    <label class="f">Password
+      <input type="password" id="p" autocomplete="current-password" required />
+    </label>
+    <label class="f" id="p2-row" hidden>Confirm password
+      <input type="password" id="p2" autocomplete="new-password" />
+    </label>
+    <p class="hint" id="p-hint" hidden>At least 8 characters.</p>
+    <label class="pledge" id="pledge-row" hidden>
+      <input type="checkbox" id="pledge" />
+      <span>I will use Context Bridge to learn. I will not use it to get answers while a test or exam is going on.</span>
+    </label>
+    <p class="err" id="err" role="alert"></p>
+    <button class="go" id="go" type="submit">Log in</button>
+  </form>
+
+  <aside class="integrity">
+    <b>Academic integrity</b>
+    <p>Each account is private: only you can see your packets. If you ask for answers and it looks like a test may be going on, Context Bridge shows a warning and locks the copy until you say what the work is for. If it is a live or graded test, ask your instructor before using any AI.</p>
+  </aside>
+</main>
+
+<script>
+(function () {
+  var mode = "login";
+  var $ = function (id) { return document.getElementById(id); };
+  fetch("/api/auth/me").then(function (r) { if (r.ok) location.replace("/"); }).catch(function () {});
+
+  function setMode(m) {
+    mode = m;
+    var isNew = m === "new";
+    $("t-login").setAttribute("aria-selected", String(!isNew));
+    $("t-new").setAttribute("aria-selected", String(isNew));
+    $("head").textContent = isNew ? "Create your account" : "Welcome back";
+    $("go").textContent = isNew ? "Create account" : "Log in";
+    ["u-hint", "p-hint", "p2-row", "pledge-row"].forEach(function (id) { $(id).hidden = !isNew; });
+    $("p").setAttribute("autocomplete", isNew ? "new-password" : "current-password");
+    $("err").textContent = "";
+    $("u").focus();
+  }
+  $("t-login").onclick = function () { setMode("login"); };
+  $("t-new").onclick = function () { setMode("new"); };
+
+  $("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var u = $("u").value.trim(), p = $("p").value;
+    if (!u || !p) return ($("err").textContent = "Enter a username and password.");
+    if (mode === "new") {
+      if (p !== $("p2").value) return ($("err").textContent = "The two passwords do not match.");
+      if (!$("pledge").checked) return ($("err").textContent = "Please tick the academic-integrity promise to continue.");
+    }
+    $("go").disabled = true;
+    $("err").textContent = "";
+    fetch("/api/auth/" + (mode === "new" ? "register" : "login"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: u, password: p })
+    }).then(function (r) {
+      if (r.ok) return location.replace("/");
+      return r.json().then(function (j) {
+        $("err").textContent = typeof j.detail === "string" ? j.detail : "Please check the username and password.";
+      }, function () { $("err").textContent = "Something went wrong (" + r.status + ")."; });
+    }).catch(function () {
+      $("err").textContent = "Cannot reach the server. Start the backend with: python3 -m uvicorn app.main:app --reload";
+    }).finally(function () { $("go").disabled = false; });
+  });
+  $("u").focus();
+})();
+</script>
+</body>
+</html>
