@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import Dict, List
@@ -147,7 +148,7 @@ def _thinking_config(model: str) -> Dict:
     return {"thinkingLevel": "minimal" if "flash" in model else "low"}
 
 
-def _ask_gemini(system: str, user: str, max_tokens: int, retried: bool = False) -> str:
+def _ask_gemini(system: str, user: str, max_tokens: int, retried: bool = False, attempt: int = 0) -> str:
     url = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent" % _gemini_model["name"]
     body = json.dumps({
         "systemInstruction": {"parts": [{"text": system}]},
@@ -178,6 +179,12 @@ def _ask_gemini(system: str, user: str, max_tokens: int, retried: bool = False) 
                     else "Check GEMINI_API_KEY and CONTEXT_BRIDGE_GEMINI_MODEL in backend/.env.")
             raise HTTPException(502, "Gemini rejected the request (HTTP %s, model %s: %s). %s"
                                 % (e.code, _gemini_model["name"], why or "no reason given", hint))
+        if e.code in (500, 502, 503, 504) and attempt < 2:
+            time.sleep(2 + 3 * attempt)  # Google is busy for a moment: wait 2 s, then 5 s, and try again
+            return _ask_gemini(system, user, max_tokens, retried, attempt + 1)
+        if e.code in (500, 502, 503, 504):
+            raise HTTPException(503, "Gemini is overloaded right now (a problem on Google's side, HTTP %s). "
+                                     "Wait a minute and try again." % e.code)
         if e.code == 429:
             raise HTTPException(502, "Gemini says too many requests (free-tier limit). Wait a minute and try again.")
         raise HTTPException(502, "Gemini request failed (HTTP %s)." % e.code)
