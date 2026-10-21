@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 import os  # noqa: E402
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 
 from fastapi import APIRouter, Cookie, Depends, FastAPI, HTTPException, Response  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -150,18 +151,24 @@ def handoff(req: HandoffRequest):
     If the integrity check flags the packet and the student has not answered the prompt, nothing is generated
     (blocked=true). Once answered, a short integrity note is added to the handoff so the next tool sees it too.
     """
+    summary = None
     if req.summarize and llm.configured():
-        try:
-            ethics.deep_check(req.packet)  # the AI reads the whole chat before anything is copied
-        except HTTPException:
-            pass  # if the model is unreachable, the rule check below still runs
+        # The AI integrity reading and the AI summary run at the same time, so the student waits for one call, not two.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            deep = pool.submit(ethics.deep_check, req.packet)
+            summary = pool.submit(llm.summarize, req.packet.model_dump(), req.target)
+            try:
+                deep.result()
+            except HTTPException:
+                pass  # if the model is unreachable, the rule check below still runs
+            summary.exception()  # wait for it; any error is raised below only if the summary is used
     c = ethics.check(req.packet)
     if not ethics.acknowledged(req.packet, c):
         return HandoffResult(text="", tokens=0, limit=req.limit_tokens, over_limit=False, transcript_chars=0,
                              transcript_used=0, trimmed=False, condensed=False, blocked=True, integrity=c)
     note = ethics.note_for(req.packet, c)
     if req.summarize:
-        body = llm.summarize(req.packet.model_dump(), req.target)
+        body = summary.result() if summary is not None else llm.summarize(req.packet.model_dump(), req.target)
         text = wrap_summary(req.packet, req.updated or now_iso(), req.target, body, note)
         return HandoffResult(text=text, tokens=-(-len(text) // 4), limit=req.limit_tokens,
                              over_limit=len(text) > req.limit_tokens * 4, transcript_chars=len(req.packet.transcript),

@@ -131,16 +131,27 @@ def _pick_gemini_model() -> str:
     return max(good, key=score) if good else ""
 
 
+_thinking = {"on": True}  # turned off automatically if a model rejects the thinking setting
+
+
+def _thinking_config(model: str) -> Dict:
+    """Ask for little or no 'thinking' so answers come back fast (these tasks are short)."""
+    if model.startswith("gemini-2"):
+        return {"thinkingBudget": 0 if "pro" not in model else 128}
+    return {"thinkingLevel": "low"}
+
+
 def _ask_gemini(system: str, user: str, max_tokens: int, retried: bool = False) -> str:
     url = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent" % _gemini_model["name"]
     body = json.dumps({
         "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
-        "generationConfig": {"maxOutputTokens": max_tokens},
+        "generationConfig": dict({"maxOutputTokens": max_tokens},
+                                 **({"thinkingConfig": _thinking_config(_gemini_model["name"])} if _thinking["on"] else {})),
     }).encode()
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "x-goog-api-key": _gemini_key()})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=45) as r:
             data = json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         if e.code == 404 and not retried:
@@ -151,8 +162,11 @@ def _ask_gemini(system: str, user: str, max_tokens: int, retried: bool = False) 
                 return _ask_gemini(system, user, max_tokens, retried=True)
             raise HTTPException(502, "Gemini model '%s' was not found. Set CONTEXT_BRIDGE_GEMINI_MODEL in backend/.env "
                                      "to a model listed in Google AI Studio." % _gemini_model["name"])
+        why = _google_reason(e) if e.code in (400, 401, 403) else ""
+        if e.code == 400 and _thinking["on"] and "think" in why.lower():
+            _thinking["on"] = False  # this model does not accept the setting: send requests without it
+            return _ask_gemini(system, user, max_tokens, retried)
         if e.code in (400, 401, 403):
-            why = _google_reason(e)
             hint = ("Make a new key in Google AI Studio and paste it into backend/.env."
                     if e.code in (401, 403) or "API_KEY" in why or "TOKEN" in why
                     else "Check GEMINI_API_KEY and CONTEXT_BRIDGE_GEMINI_MODEL in backend/.env.")
