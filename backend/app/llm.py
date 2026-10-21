@@ -98,6 +98,17 @@ def _gemini_key() -> str:
     return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
 
 
+def _google_reason(e: urllib.error.HTTPError) -> str:
+    """Google's own short reason for an error, e.g. 'API_KEY_INVALID: API key not valid.' (never contains the key)."""
+    try:
+        err = json.loads(e.read().decode("utf-8", "replace")).get("error", {})
+    except Exception:
+        return ""
+    reasons = [d.get("reason", "") for d in err.get("details", []) if isinstance(d, dict) and d.get("reason")]
+    msg = " ".join(str(err.get("message", "")).split())[:160]
+    return ((reasons[0] + ": ") if reasons else (str(err.get("status", "")) + ": " if err.get("status") else "")) + msg
+
+
 def _pick_gemini_model() -> str:
     """Ask Google which models this key can use and pick a current general 'flash' model. '' if none found."""
     req = urllib.request.Request("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",
@@ -141,7 +152,12 @@ def _ask_gemini(system: str, user: str, max_tokens: int, retried: bool = False) 
             raise HTTPException(502, "Gemini model '%s' was not found. Set CONTEXT_BRIDGE_GEMINI_MODEL in backend/.env "
                                      "to a model listed in Google AI Studio." % _gemini_model["name"])
         if e.code in (400, 401, 403):
-            raise HTTPException(502, "Gemini rejected the request. Check GEMINI_API_KEY and CONTEXT_BRIDGE_GEMINI_MODEL in backend/.env.")
+            why = _google_reason(e)
+            hint = ("Make a new key in Google AI Studio and paste it into backend/.env."
+                    if e.code in (401, 403) or "API_KEY" in why or "TOKEN" in why
+                    else "Check GEMINI_API_KEY and CONTEXT_BRIDGE_GEMINI_MODEL in backend/.env.")
+            raise HTTPException(502, "Gemini rejected the request (HTTP %s, model %s: %s). %s"
+                                % (e.code, _gemini_model["name"], why or "no reason given", hint))
         if e.code == 429:
             raise HTTPException(502, "Gemini says too many requests (free-tier limit). Wait a minute and try again.")
         raise HTTPException(502, "Gemini request failed (HTTP %s)." % e.code)

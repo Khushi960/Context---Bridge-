@@ -15,13 +15,13 @@ def _bullets(items: List[str]) -> str:
 
 def _sections(p: PacketIn, note: str = "") -> List[Tuple[str, str, str]]:
     return [s for s in [
-        ("goal", "Goal", p.goal.strip()),
-        ("current_state", "Where things stand", p.status.strip()),
+        ("goal", "Goal", p.goal.strip() if _real(p.goal) else ""),
+        ("current_state", "Where things stand", p.status.strip() if _real(p.status) else ""),
         ("decisions", "Decisions made", _bullets(p.decisions)),
         ("constraints", "Constraints", _bullets(p.constraints)),
         ("key_facts", "Key facts", _bullets(p.facts)),
         ("open_questions", "Open questions", _bullets(p.open)),
-        ("answer_style", "How I want answers", p.style.strip()),
+        ("answer_style", "How I want answers", p.style.strip() if _real(p.style) else ""),
         ("academic_integrity", "Academic integrity", note.strip()),
     ] if s[2]]
 
