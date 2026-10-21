@@ -26,6 +26,15 @@ from .schemas import (  # noqa: E402
 )
 
 app = FastAPI(title="Context Bridge API")
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request, exc):  # shows a readable message instead of "Internal Server Error"
+    import logging
+    logging.getLogger("context_bridge").exception("Unexpected error on %s", request.url.path)
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=500, content={"detail": "Server error (%s: %s). The full error is in the terminal "
+                                                            "running the server." % (type(exc).__name__, str(exc)[:150])})
 api = APIRouter(prefix="/api")
 
 SEED = PacketIn(

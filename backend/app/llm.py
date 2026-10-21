@@ -188,18 +188,28 @@ def ask(system: str, user: str, max_tokens: int = 2000) -> str:
     p = provider()
     if not p:
         raise HTTPException(503, "No API key set. Add ANTHROPIC_API_KEY or GEMINI_API_KEY to backend/.env and restart the server.")
-    return (_ask_claude if p == "anthropic" else _ask_gemini)(system, user, max_tokens)
+    try:
+        return (_ask_claude if p == "anthropic" else _ask_gemini)(system, user, max_tokens)
+    except HTTPException:
+        raise
+    except Exception as e:  # dropped connection, odd reply shape, etc.: report it instead of crashing the server
+        raise HTTPException(502, "The AI call failed (%s: %s). Try again." % (type(e).__name__, str(e)[:150]))
 
 
 def _parse_json(text: str) -> Dict:
     text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
     a, b = text.find("{"), text.rfind("}")
-    if a == -1 or b == -1:
+    if a == -1:
         raise HTTPException(502, "The model did not return JSON. Try again.")
+    if b < a:
+        raise HTTPException(502, "The model's answer was cut off. Try again, or paste a shorter chat.")
     try:
-        return json.loads(text[a:b + 1])
+        data = json.loads(text[a:b + 1])
     except json.JSONDecodeError:
-        raise HTTPException(502, "The model returned malformed JSON. Try again.")
+        raise HTTPException(502, "The model's answer was cut off or malformed. Try again, or paste a shorter chat.")
+    if not isinstance(data, dict):
+        raise HTTPException(502, "The model returned the wrong kind of JSON. Try again.")
+    return data
 
 
 def _list(v) -> List[str]:
@@ -207,7 +217,7 @@ def _list(v) -> List[str]:
 
 
 def extract_packet(transcript: str, source: str) -> Dict:
-    data = _parse_json(ask(EXTRACT_SYSTEM, transcript[-60000:]))
+    data = _parse_json(ask(EXTRACT_SYSTEM, transcript[-40000:], max_tokens=4000))
     return {
         "title": str(data.get("title") or "Untitled"), "source": source,
         "goal": str(data.get("goal") or ""), "status": str(data.get("status") or ""),
