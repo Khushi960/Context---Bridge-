@@ -131,6 +131,11 @@ def _pick_gemini_model() -> str:
     return max(good, key=score) if good else ""
 
 
+def _timeout(max_tokens: int) -> int:
+    """Seconds to wait: short jobs 45 s, long ones (reading a big chat and writing many fields) up to 150 s."""
+    return min(150, 45 + max_tokens // 40)
+
+
 _thinking = {"on": True}  # turned off automatically if a model rejects the thinking setting
 
 
@@ -151,7 +156,7 @@ def _ask_gemini(system: str, user: str, max_tokens: int, retried: bool = False) 
     }).encode()
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "x-goog-api-key": _gemini_key()})
     try:
-        with urllib.request.urlopen(req, timeout=45) as r:
+        with urllib.request.urlopen(req, timeout=_timeout(max_tokens)) as r:
             data = json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         if e.code == 404 and not retried:
@@ -176,6 +181,8 @@ def _ask_gemini(system: str, user: str, max_tokens: int, retried: bool = False) 
             raise HTTPException(502, "Gemini says too many requests (free-tier limit). Wait a minute and try again.")
         raise HTTPException(502, "Gemini request failed (HTTP %s)." % e.code)
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        if isinstance(e, TimeoutError) or "timed out" in str(e):
+            raise HTTPException(504, "The AI took too long to answer. Try again, or paste only the most recent part of the chat.")
         raise HTTPException(502, "Could not reach Gemini: %s" % e)
     try:
         parts = data["candidates"][0]["content"]["parts"]
@@ -193,6 +200,8 @@ def ask(system: str, user: str, max_tokens: int = 2000) -> str:
     except HTTPException:
         raise
     except Exception as e:  # dropped connection, odd reply shape, etc.: report it instead of crashing the server
+        if isinstance(e, TimeoutError) or type(e).__name__ == "timeout" or "timed out" in str(e):
+            raise HTTPException(504, "The AI took too long to answer. Try again, or paste only the most recent part of the chat.")
         raise HTTPException(502, "The AI call failed (%s: %s). Try again." % (type(e).__name__, str(e)[:150]))
 
 
